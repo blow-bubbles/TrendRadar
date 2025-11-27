@@ -23,9 +23,7 @@ jobs:
 
       - name: Run TrendRadar
         env:
-          WEWORK_CORPID: ${{ secrets.WEWORK_CORPID }}
-          WEWORK_AGENTID: ${{ secrets.WEWORK_AGENTID }}
-          WEWORK_CORPSECRET: ${{ secrets.WEWORK_CORPSECRET }}
+          WEWORK_WEBHOOK_URL: ${{ secrets.WEWORK_WEBHOOK_URL }}   # ← 必须添加！
           KEYWORDS: ${{ secrets.KEYWORDS }}
         run: |
           python main.py --mode daily
