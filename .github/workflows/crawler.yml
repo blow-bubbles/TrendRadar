@@ -1,13 +1,16 @@
 name: Hot News Crawler
+
 on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
 
+# 防止同一分支并发执行
 concurrency:
   group: crawler-${{ github.ref_name }}
   cancel-in-progress: true
 
+# ⭐ 必须：允许 Actions 写仓库
 permissions:
   contents: write
 
@@ -15,37 +18,32 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true   # ⭐ 确保 push 使用 GITHUB_TOKEN
           clean: true
-          
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-          
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
+
       - name: Verify required files
         run: |
           echo "🔍 检查必需的配置文件..."
-          if [ ! -f config/config.yaml ]; then
-            echo "❌ 错误: config/config.yaml 文件不存在"
-            exit 1
-          fi
-          if [ ! -f config/frequency_words.txt ]; then
-            echo "❌ 错误: config/frequency_words.txt 文件不存在"
-            exit 1
-          fi
+          test -f config/config.yaml || { echo "❌ 缺少 config/config.yaml"; exit 1; }
+          test -f config/frequency_words.txt || { echo "❌ 缺少 config/frequency_words.txt"; exit 1; }
           echo "✅ 配置文件检查通过"
-          
+
       - name: Run crawler
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
@@ -66,46 +64,28 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GITHUB_ACTIONS: true
         run: python main.py
-        
+
       - name: Commit and push if changes
         env:
           BRANCH_NAME: ${{ github.event.repository.default_branch }}
         run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
-          
-          echo "🔄 Syncing with remote (branch: $BRANCH_NAME)..."
-          git fetch origin $BRANCH_NAME
-          
-          # 保存当前更改
-          git stash --include-untracked || echo "Nothing to stash"
-          
-          # 同步到远程最新
-          git reset --hard origin/$BRANCH_NAME
-          
-          # 恢复本次更改
-          git stash pop || echo "Nothing to pop"
-          
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add -A
-          
-          if git diff --quiet && git diff --staged --quiet; then
+
+          if git diff --cached --quiet; then
             echo "📭 No changes to commit"
             exit 0
           fi
-          
-          echo "📝 Committing changes..."
+
           TIMESTAMP=$(TZ=Asia/Shanghai date "+%Y-%m-%d %H:%M:%S")
-          git commit -m "Auto update by GitHub Actions at $TIMESTAMP"
-          
-          echo "⬆️ Pushing changes with retry..."
-          for i in {1..5}; do
-            git pull --rebase origin $BRANCH_NAME && git push origin $BRANCH_NAME && {
-              echo "✅ Successfully pushed on attempt $i"
-              exit 0
-            }
-            echo "⚠️ Attempt $i failed, waiting $((i*3)) seconds..."
-            sleep $((i * 3))
-          done
-          
-          echo "❌ Failed to push after 5 attempts"
-          exit 1
+          git commit -m "Auto update by GitHub Actions at $TIMESTAMP [skip ci]"
+
+          echo "⬆️ Pushing changes..."
+          git push origin "$BRANCH_NAME" || {
+            echo "⚠️ Push failed, but workflow will not fail"
+            exit 0
+          }
